@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SORA Operational Volume Tool</title>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBfhPQUXbEELjFw1HTJAguGUYV85vWv010&libraries=geometry,drawing"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script>
+        let map;
+        let drawingManager;
+        let operationalPolygon = null;
+        let contingencyPolygon = null;
+        let groundRiskPolygon = null;
+        let adjacentVolumePolygon = null;
+        let contingencyBuffer = 20; // Default CV buffer in meters
+        let groundRiskBuffer = 100; // Default GRB buffer in meters
+        let adjacentVolumeBuffer = 500; // Default AV buffer in meters
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: 53.3498, lng: -6.2603 }, // Default location (Dublin)
+                zoom: 10,
+                mapTypeId: "hybrid"
+            });
+
+            drawingManager = new google.maps.drawing.DrawingManager({
+                drawingMode: google.maps.drawing.OverlayType.POLYGON,
+                drawingControl: true,
+                drawingControlOptions: {
+                    position: google.maps.ControlPosition.TOP_CENTER,
+                    drawingModes: [google.maps.drawing.OverlayType.POLYGON]
+                },
+                polygonOptions: {
+                    editable: true,
+                    strokeColor: "green",
+                    fillColor: "green",
+                    fillOpacity: 0.5
+                }
+            });
+
+            drawingManager.setMap(map);
+            google.maps.event.addListener(drawingManager, 'overlaycomplete', function(event) {
+                if (event.type === google.maps.drawing.OverlayType.POLYGON) {
+                    if (operationalPolygon) operationalPolygon.setMap(null);
+                    operationalPolygon = event.overlay;
+                    google.maps.event.addListener(operationalPolygon.getPath(), 'set_at', generateBuffers);
+                    google.maps.event.addListener(operationalPolygon.getPath(), 'insert_at', generateBuffers);
+                    generateBuffers();
+                }
+            });
+        }
+
+        function generateBuffers() {
+            if (!operationalPolygon) return;
+
+            let operationalPath = operationalPolygon.getPath().getArray().map(p => [p.lng(), p.lat()]);
+            operationalPath.push(operationalPath[0]); // Close the polygon loop
+            
+            let geoJsonPolygon = turf.polygon([subdividePolygon(operationalPath, 10)]); // Subdivide edges
+            
+            if (contingencyPolygon) contingencyPolygon.setMap(null);
+            if (groundRiskPolygon) groundRiskPolygon.setMap(null);
+            if (adjacentVolumePolygon) adjacentVolumePolygon.setMap(null);
+
+            let cvBuffer = turf.buffer(geoJsonPolygon, contingencyBuffer, { units: 'meters' });
+            let grbBuffer = turf.buffer(cvBuffer, groundRiskBuffer, { units: 'meters' });
+
+            // AV is now based directly on CV, NOT GRB
+            let avBuffer = turf.buffer(cvBuffer, adjacentVolumeBuffer, { units: 'meters' });
+
+            contingencyPolygon = createGooglePolygon(cvBuffer, "orange");
+            groundRiskPolygon = createGooglePolygon(grbBuffer, "red");
+            adjacentVolumePolygon = createGooglePolygon(avBuffer, "black", 2, 0.15);
+        }
+
+        function subdividePolygon(path, segments) {
+            let subdivided = [];
+            for (let i = 0; i < path.length - 1; i++) {
+                let start = turf.point(path[i]);
+                let end = turf.point(path[i + 1]);
+                let line = turf.lineString([path[i], path[i + 1]]);
+                let split = turf.lineChunk(line, turf.length(line, { units: 'meters' }) / segments, { units: 'meters' });
+                split.features.forEach(f => subdivided.push(f.geometry.coordinates[0]));
+            }
+            subdivided.push(path[path.length - 1]);
+            return subdivided;
+        }
+
+        function createGooglePolygon(geoJson, color, strokeWeight = 1, fillOpacity = 0.3) {
+            let coordinates = geoJson.geometry.coordinates[0].map(coord => new google.maps.LatLng(coord[1], coord[0]));
+            return new google.maps.Polygon({
+                paths: coordinates,
+                strokeColor: color,
+                strokeWeight: strokeWeight,
+                fillColor: color,
+                fillOpacity: fillOpacity,
+                map: map
+            });
+        }
+
+        function updateContingencyBuffer(value) {
+            contingencyBuffer = parseInt(value);
+            if (operationalPolygon) generateBuffers();
+        }
+
+        function updateGroundRiskBuffer(value) {
+            groundRiskBuffer = parseInt(value);
+            if (operationalPolygon) generateBuffers();
+        }
+
+        function updateAdjacentVolumeBuffer(value) {
+            adjacentVolumeBuffer = parseInt(value);
+            if (operationalPolygon) generateBuffers();
+        }
+
+        function clearPolygons() {
+            if (operationalPolygon) operationalPolygon.setMap(null);
+            if (contingencyPolygon) contingencyPolygon.setMap(null);
+            if (groundRiskPolygon) groundRiskPolygon.setMap(null);
+            if (adjacentVolumePolygon) adjacentVolumePolygon.setMap(null);
+            operationalPolygon = null;
+            contingencyPolygon = null;
+            groundRiskPolygon = null;
+            adjacentVolumePolygon = null;
+        }
+
+        function togglePolygon(polygon) {
+            if (!polygon) return;
+            polygon.setMap(polygon.getMap() ? null : map);
+        }
+
+       function exportToKML() {
+    let kmlContent = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    kmlContent += '<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n';
+
+    function polygonToKML(polygon, name, lineColor) {
+        if (!polygon) return "";
+
+        let path = polygon.getPath().getArray();
+        let kmlLine = '<Placemark>\n';
+        kmlLine += `<name>${name}</name>\n`;
+        kmlLine += `<Style><LineStyle><color>${lineColor}</color><width>2</width></LineStyle></Style>\n`;
+        kmlLine += '<LineString>\n<tessellate>1</tessellate>\n<coordinates>\n';
+
+        path.forEach(point => {
+            kmlLine += `${point.lng()},${point.lat()},0\n`;
+        });
+
+        // Ensure the polygon is closed by repeating the first coordinate
+        kmlLine += `${path[0].lng()},${path[0].lat()},0\n`;
+
+        kmlLine += '</coordinates>\n</LineString>\n';
+        kmlLine += '</Placemark>\n';
+
+        return kmlLine;
+    }
+
+    kmlContent += polygonToKML(operationalPolygon, "Operational Volume", "ff00ff00"); // Green
+    kmlContent += polygonToKML(contingencyPolygon, "Contingency Volume", "ff00aaff"); // Orange
+    kmlContent += polygonToKML(groundRiskPolygon, "Ground Risk Buffer", "ff0000ff"); // Red
+    kmlContent += polygonToKML(adjacentVolumePolygon, "Adjacent Volume", "ff000000"); // Black
+
+    kmlContent += '</Document>\n</kml>';
+
+    let blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml" });
+    let link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "operational_volume.kml";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+    </script>
+</head>
+<body onload="initMap()">
+    <h2>SORA Operational Volume Tool</h2>
+    <div id="map" style="height: 600px; width: 100%;"></div>
+    <br>
+    <label for="cvInput">Contingency Volume Width (m):</label>
+    <input type="number" id="cvInput" min="0" max="200" value="20" oninput="updateContingencyBuffer(this.value)">
+    <br>
+    <label for="grbInput">Ground Risk Buffer Width (m):</label>
+    <input type="number" id="grbInput" min="0" max="2000" value="100" oninput="updateGroundRiskBuffer(this.value)">
+    <br>
+    <label for="avInput">Adjacent Volume Width (m):</label>
+    <input type="number" id="avInput" min="200" max="5000" value="500" oninput="updateAdjacentVolumeBuffer(this.value)">
+    <br>
+    <button onclick="exportToKML()">Export to KML</button>
+    <button onclick="clearPolygons()">Clear All</button>
+    <button onclick="togglePolygon(operationalPolygon)">Toggle FG</button>
+    <button onclick="togglePolygon(contingencyPolygon)">Toggle CV</button>
+    <button onclick="togglePolygon(groundRiskPolygon)">Toggle GRB</button>
+    <button onclick="togglePolygon(adjacentVolumePolygon)">Toggle AV</button>
+</body>
+</html>
+
+
