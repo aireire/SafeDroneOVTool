@@ -92,25 +92,30 @@
         }
 
         function generateBuffers() {
-            if (!operationalPolygon) return;
+    if (!operationalPolygon) return;
 
-            let operationalPath = operationalPolygon.getPath().getArray().map(p => [p.lng(), p.lat()]);
-            operationalPath.push(operationalPath[0]);
+    let operationalPath = operationalPolygon.getPath().getArray().map(p => [p.lng(), p.lat()]);
+    operationalPath.push(operationalPath[0]); // Close the polygon
 
-            let geoJsonPolygon = turf.polygon([operationalPath]);
+    let geoJsonPolygon = turf.polygon([operationalPath]);
 
-            if (contingencyPolygon) contingencyPolygon.setMap(null);
-            if (groundRiskPolygon) groundRiskPolygon.setMap(null);
-            if (adjacentVolumePolygon) adjacentVolumePolygon.setMap(null);
+    if (contingencyPolygon) contingencyPolygon.setMap(null);
+    if (groundRiskPolygon) groundRiskPolygon.setMap(null);
+    if (adjacentVolumePolygon) adjacentVolumePolygon.setMap(null);
 
-            let cvBuffer = turf.buffer(geoJsonPolygon, contingencyBuffer, { units: 'meters' });
-            let grbBuffer = turf.buffer(cvBuffer, groundRiskBuffer, { units: 'meters' });
-            let avBuffer = turf.buffer(cvBuffer, adjacentVolumeBuffer, { units: 'meters' });
+    let cvBuffer = turf.buffer(geoJsonPolygon, contingencyBuffer, { units: 'meters' });
+    let grbBuffer = turf.buffer(cvBuffer, groundRiskBuffer, { units: 'meters' });
+    let avBuffer = turf.buffer(cvBuffer, adjacentVolumeBuffer, { units: 'meters' });
 
-            contingencyPolygon = createGooglePolygon(cvBuffer, "orange");
-            groundRiskPolygon = createGooglePolygon(grbBuffer, "red");
-            adjacentVolumePolygon = createGooglePolygon(avBuffer, "black", 2, 0.15);
-        }
+    // Ensure FG is drawn last by drawing CV, GRB, and AV first
+    contingencyPolygon = createGooglePolygon(cvBuffer, "orange", 1, 0.15);
+    groundRiskPolygon = createGooglePolygon(grbBuffer, "red", 1, 0.15);
+    adjacentVolumePolygon = createGooglePolygon(avBuffer, "black", 2, 0.15);
+
+    // Draw FG Polygon LAST to ensure it's on top
+    operationalPolygon.setMap(null);
+    operationalPolygon = createGooglePolygon(geoJsonPolygon, "green", 3, 0.3);
+}
 
         function createGooglePolygon(geoJson, color, strokeWeight = 1, fillOpacity = 0.3) {
             let coordinates = geoJson.geometry.coordinates[0].map(coord => new google.maps.LatLng(coord[1], coord[0]));
