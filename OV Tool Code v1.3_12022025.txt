@@ -92,30 +92,37 @@
         }
 
         function generateBuffers() {
-    if (!operationalPolygon) return;
+            if (!operationalPolygon) return;
 
-    let operationalPath = operationalPolygon.getPath().getArray().map(p => [p.lng(), p.lat()]);
-    operationalPath.push(operationalPath[0]); // Close the polygon
+            let operationalPath = operationalPolygon.getPath().getArray().map(p => [p.lng(), p.lat()]);
+            operationalPath.push(operationalPath[0]); // Close the polygon
 
-    let geoJsonPolygon = turf.polygon([operationalPath]);
+            let geoJsonPolygon = turf.polygon([operationalPath]);
 
-    if (contingencyPolygon) contingencyPolygon.setMap(null);
-    if (groundRiskPolygon) groundRiskPolygon.setMap(null);
-    if (adjacentVolumePolygon) adjacentVolumePolygon.setMap(null);
+            if (contingencyPolygon) contingencyPolygon.setMap(null);
+            if (groundRiskPolygon) groundRiskPolygon.setMap(null);
+            if (adjacentVolumePolygon) adjacentVolumePolygon.setMap(null);
 
-    let cvBuffer = turf.buffer(geoJsonPolygon, contingencyBuffer, { units: 'meters' });
-    let grbBuffer = turf.buffer(cvBuffer, groundRiskBuffer, { units: 'meters' });
-    let avBuffer = turf.buffer(cvBuffer, adjacentVolumeBuffer, { units: 'meters' });
+            let cvBuffer = turf.buffer(geoJsonPolygon, contingencyBuffer, { units: 'meters' });
+            let grbBuffer = turf.buffer(cvBuffer, groundRiskBuffer, { units: 'meters' });
+            let avBuffer = turf.buffer(cvBuffer, adjacentVolumeBuffer, { units: 'meters' });
 
-    // Ensure FG is drawn last by drawing CV, GRB, and AV first
-    contingencyPolygon = createGooglePolygon(cvBuffer, "orange", 1, 0.15);
-    groundRiskPolygon = createGooglePolygon(grbBuffer, "red", 1, 0.15);
-    adjacentVolumePolygon = createGooglePolygon(avBuffer, "black", 2, 0.15);
+            contingencyPolygon = createGooglePolygon(cvBuffer, "orange", 1, 0.15);
+            groundRiskPolygon = createGooglePolygon(grbBuffer, "red", 1, 0.15);
+            adjacentVolumePolygon = createGooglePolygon(avBuffer, "black", 2, 0.15);
 
-    // Draw FG Polygon LAST to ensure it's on top
-    operationalPolygon.setMap(null);
-    operationalPolygon = createGooglePolygon(geoJsonPolygon, "green", 3, 0.3);
-}
+            operationalPolygon.setOptions({
+                strokeColor: "green",
+                strokeWeight: 3,
+                fillColor: "green",
+                fillOpacity: 0.3,
+                editable: true,
+                map: map
+            });
+
+            operationalPolygon.setMap(null);
+            operationalPolygon.setMap(map);
+        }
 
         function createGooglePolygon(geoJson, color, strokeWeight = 1, fillOpacity = 0.3) {
             let coordinates = geoJson.geometry.coordinates[0].map(coord => new google.maps.LatLng(coord[1], coord[0]));
@@ -155,12 +162,11 @@
             adjacentVolumePolygon = null;
         }
 
-                function togglePolygon(polygon) {
+        function togglePolygon(polygon) {
             if (!polygon) return;
             polygon.setMap(polygon.getMap() ? null : map);
         }
 
-        
         function exportToKML() {
             let kmlContent = '<?xml version="1.0" encoding="UTF-8"?>\n';
             kmlContent += '<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n';
@@ -187,9 +193,21 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-   
         }
     </script>
+
+    <style>
+        /* Enlarge Google Maps Drawing Toolbar */
+        .gm-svpc,
+        .gmnoprint {
+            transform: scale(1.5);
+            transform-origin: top left;
+        }
+
+        .gmnoprint {
+            margin: 10px !important;
+        }
+    </style>
 </head>
 <body onload="initMap()">
 
@@ -209,15 +227,15 @@
 
     <!-- Sliders -->
     <label for="cvInput">Contingency Volume Width (m):</label>
-    <input type="number" id="cvInput" min="0" max="300" value="20" oninput="updateContingencyBuffer(this.value)">
+    <input type="number" id="cvInput" min="0" max="200" value="20" oninput="updateContingencyBuffer(this.value)">
     <br>
 
     <label for="grbInput">Ground Risk Buffer Width (m):</label>
-    <input type="number" id="grbInput" min="0" max="3000" value="100" oninput="updateGroundRiskBuffer(this.value)">
+    <input type="number" id="grbInput" min="0" max="2000" value="100" oninput="updateGroundRiskBuffer(this.value)">
     <br>
 
     <label for="avInput">Adjacent Volume Width (m):</label>
-    <input type="number" id="avInput" min="200" max="35000" value="600" oninput="updateAdjacentVolumeBuffer(this.value)">
+    <input type="number" id="avInput" min="200" max="5000" value="500" oninput="updateAdjacentVolumeBuffer(this.value)">
     <br>
 
     <!-- Buttons -->
@@ -229,3 +247,4 @@
     <button onclick="togglePolygon(adjacentVolumePolygon)">Toggle AV</button>
 </body>
 </html>
+
